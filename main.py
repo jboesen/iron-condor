@@ -12,20 +12,13 @@ class IronCondorAlgorithm(QCAlgorithm):
         self.Debug('Starting Cash: ' + str(self.Portfolio.Cash))
         # Add equities
         self.equity = [x for x in self.ActiveSecurities]
-        self.equity.append(self.AddEquity("SPY", Resolution.Minute))
-        self.equity.append(self.AddEquity("EEM", Resolution.Minute))
-        self.equity.append(self.AddEquity("VCR", Resolution.Minute))
-        self.equity.append(self.AddEquity("SLY", Resolution.Minute))
-        self.equity.append(self.AddEquity("XLP", Resolution.Minute))
-        self.equity.append(self.AddEquity("ARKK", Resolution.Minute))
-        self.equity.append(self.AddEquity("XLY", Resolution.Minute))
         self.stock_list = ["SPY", "VCR", "SLY", "EEM", "XLP", "ARKK", "XLY"]
+        for symbol in stock_list:
+          self.equity.append(self.AddEquity(symbol, Resolution.Minute))
         symbols = []
         for x in self.stock_list:
             symbols.append(Symbol.Create(x, SecurityType.Equity, Market.USA))
         self.SetUniverseSelection(ManualUniverseSelectionModel(symbols))
-        # for i in self.equity:
-            #i.SetLeverage(1)
         self.options = []
         # Create an array of options for each symbol
         for x in self.equity:
@@ -47,12 +40,11 @@ class IronCondorAlgorithm(QCAlgorithm):
         # self.Schedule.On(self.OptionPositionAssigned, self.Wings)
 
         
-    # What I think is happening is it's sending a ton of data simultaneously
     def OnData(self, slice):
         self.most_recent_slice = slice
 
     def TradeOptions(self):
-        # If there is undelying assets in portfolio at expiration, liquidate the stocks in order to roll into new contracts
+        # If there are undelying assets in portfolio at expiration, liquidate the stocks in order to roll into new contracts
         self.Debug(str(x for x in self.Portfolio))
         #This is a problem; it needs to be taylored to each option
         if self.Portfolio.Invested:
@@ -62,18 +54,14 @@ class IronCondorAlgorithm(QCAlgorithm):
             self.AddToPortfolio()
             self.liabilities.clear()
     
-    def CloseCondor(self, x):
-        # CCC = Close Condor Called
-        # x is condor_list, which is filled with options objects
-        self.Debug("CCC")
+    def CloseCondor(self, options_list):
+        # self.Debug("CCC")
         for row in range(len(self.liabilities)):
             # If the option's symbols match
-            if self.liabilities[row][0] is x[3].Symbol:
+            if self.liabilities[row][0] is options_list[3].Symbol:
                 self.liabilities.pop(row)
-        # self.liabilities -= 100 * (x[2].Strike - x[3].Strike) + x[2].BidPrice + x[0].BidPrice - x[1].BidPrice - x[3].BidPrice
-        # ATTENTION: This is not a good fix
         for i in range(3):
-            self.Liquidate(x[i].Symbol)
+            self.Liquidate(options_list[i].Symbol)
         if not self.Portfolio.Invested:
             self.liabilities.clear()
 
@@ -82,8 +70,6 @@ class IronCondorAlgorithm(QCAlgorithm):
         # condor list: otm_call, otm_call_higher, otm_put, otm_put_lower, netPremium
         for x in self.condor_list:
             days_to_expiry = abs(x[0].Expiry - self.Time).days
-            # self.Debug(str(days_to_expiry))
-            # F O R  S O M E  R E A S O N  O P T I O N S  A R E  E X P I R I N G (NOT SOLD)
             # if this condor expires in 25+ days, leave it
             if days_to_expiry > 25:
                 continue
@@ -112,8 +98,6 @@ class IronCondorAlgorithm(QCAlgorithm):
         #Clean out actual stocks
         for ticker in self.stock_list:
             self.SetHoldings(ticker, 0)
-
-        # self.AddToPortfolio()
 
     def AddToPortfolio(self):
         for i in self.most_recent_slice.OptionChains:
@@ -164,19 +148,17 @@ class IronCondorAlgorithm(QCAlgorithm):
                 
             # self.Debug('Lower Put ' + str(otm_put_lower.Strike) + 'Higher Put ' + str(otm_put.Strike) + 'Lower Call: ' + str(otm_call.Strike) + 'Higher Call' + str(otm_call_higher.Strike))
             expiry = otm_call_higher.Expiry
-            # if there is no securities in portfolio, trade the options 
+            # if there are no securities in portfolio, trade the options 
             totalPrice = sum([x.AskPrice for x in [otm_call_higher, otm_put_lower]]) - otm_put.BidPrice - otm_call.BidPrice + 100*otm_call.UnderlyingLastPrice
             maximumLoss = 100 * (otm_put.Strike - otm_put_lower.Strike) + otm_put.BidPrice + otm_call.BidPrice - otm_put_lower.BidPrice - otm_call_higher.BidPrice
-            # margin = self.Portfolio.GetMarginRemaining(otm_put_lower.UnderlyingSymbol, OrderDirection.Buy)
-            # if margin > totalPrice and
             total_liabilities = 0
             for row in range(len(self.liabilities)):
                 total_liabilities += self.liabilities[row][1]
-            self.Debug("Liabilities: " + str(total_liabilities))
-            self.Debug("Cash: " + str(self.Portfolio.Cash))
+            # self.Debug("Liabilities: " + str(total_liabilities))
+            # self.Debug("Cash: " + str(self.Portfolio.Cash))
             if total_liabilities + maximumLoss < self.Portfolio.Cash:
-                self.Debug("Passed Enough Cash Test. Cash: " + str(self.Portfolio.Cash))
-                self.Debug("Option Total Pricetag: " + str(totalPrice))
+                # self.Debug("Passed Enough Cash Test. Cash: " + str(self.Portfolio.Cash))
+                # self.Debug("Option Total Pricetag: " + str(totalPrice))
                 self.Buy(otm_put_lower.Symbol ,1)
                 self.Sell(otm_put.Symbol ,1)
                 self.Sell(otm_call.Symbol ,1)
